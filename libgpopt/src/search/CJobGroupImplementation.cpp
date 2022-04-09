@@ -51,19 +51,8 @@ using namespace gpopt;
 //
 const CJobGroupImplementation::EEvent
 	rgeev[CJobGroupImplementation::estSentinel]
-		 [CJobGroupImplementation::estSentinel] = {
-			 {// estInitialized
-			  CJobGroupImplementation::eevExploring,
-			  CJobGroupImplementation::eevExplored,
-			  CJobGroupImplementation::eevSentinel},
-			 {// estImplementingChildren
-			  CJobGroupImplementation::eevSentinel,
-			  CJobGroupImplementation::eevImplementing,
-			  CJobGroupImplementation::eevImplemented},
-			 {// estCompleted
-			  CJobGroupImplementation::eevSentinel,
-			  CJobGroupImplementation::eevSentinel,
-			  CJobGroupImplementation::eevSentinel},
+		 [CJobGroupImplementation::estSentinel] = {{}
+
 };
 
 #ifdef GPOS_DEBUG
@@ -120,22 +109,6 @@ CJobGroupImplementation::~CJobGroupImplementation()
 void
 CJobGroupImplementation::Init(CGroup *pgroup)
 {
-	CJobGroup::Init(pgroup);
-
-	m_jsm.Init(rgeev
-#ifdef GPOS_DEBUG
-			   ,
-			   rgwszStates, rgwszEvents
-#endif	// GPOS_DEBUG
-	);
-
-	// set job actions
-	m_jsm.SetAction(estInitialized, EevtStartImplementation);
-	m_jsm.SetAction(estImplementingChildren, EevtImplementChildren);
-
-	SetJobQueue(pgroup->PjqImplementation());
-
-	CJob::SetInit();
 }
 
 
@@ -151,32 +124,7 @@ CJobGroupImplementation::Init(CGroup *pgroup)
 BOOL
 CJobGroupImplementation::FScheduleGroupExpressions(CSchedulerContext *psc)
 {
-	CGroupExpression *pgexprLast = m_pgexprLastScheduled;
-
-	// iterate on expression and schedule them as needed
-	CGroupExpression *pgexpr = PgexprFirstUnsched();
-	while (NULL != pgexpr)
-	{
-		if (!pgexpr->FTransitioned(CGroupExpression::estImplemented) &&
-			!pgexpr->ContainsCircularDependencies())
-		{
-			CJobGroupExpressionImplementation::ScheduleJob(psc, pgexpr, this);
-			pgexprLast = pgexpr;
-		}
-
-		// move to next expression
-		{
-			CGroupProxy gp(m_pgroup);
-			pgexpr = gp.PgexprNext(pgexpr);
-		}
-	}
-
-	BOOL fNewJobs = (m_pgexprLastScheduled != pgexprLast);
-
-	// set last scheduled expression
-	m_pgexprLastScheduled = pgexprLast;
-
-	return fNewJobs;
+	return false;
 }
 
 
@@ -192,33 +140,7 @@ CJobGroupImplementation::EEvent
 CJobGroupImplementation::EevtStartImplementation(CSchedulerContext *psc,
 												 CJob *pjOwner)
 {
-	// get a job pointer
-	CJobGroupImplementation *pjgi = PjConvert(pjOwner);
-	CGroup *pgroup = pjgi->m_pgroup;
-
-	if (!pgroup->FExplored())
-	{
-		// schedule a child exploration job
-		CJobGroupExploration::ScheduleJob(psc, pgroup, pjgi);
-		return eevExploring;
-	}
-	else
-	{
-		// move group to implementation state
-		{
-			CGroupProxy gp(pgroup);
-			gp.SetState(CGroup::estImplementing);
-		}
-
-		// if this is the root, release exploration jobs
-		if (psc->Peng()->FRoot(pgroup))
-		{
-			psc->Pjf()->Truncate(EjtGroupExploration);
-			psc->Pjf()->Truncate(EjtGroupExpressionExploration);
-		}
-
-		return eevExplored;
-	}
+	return eevSentinel;
 }
 
 
@@ -234,29 +156,7 @@ CJobGroupImplementation::EEvent
 CJobGroupImplementation::EevtImplementChildren(CSchedulerContext *psc,
 											   CJob *pjOwner)
 {
-	// get a job pointer
-	CJobGroupImplementation *pjgi = PjConvert(pjOwner);
-	if (pjgi->FScheduleGroupExpressions(psc))
-	{
-		// implementation is in progress
-		return eevImplementing;
-	}
-	else
-	{
-		// move group to implemented state
-		{
-			CGroupProxy gp(pjgi->m_pgroup);
-			gp.SetState(CGroup::estImplemented);
-		}
-
-		// if this is the root, complete implementation phase
-		if (psc->Peng()->FRoot(pjgi->m_pgroup))
-		{
-			psc->Peng()->FinalizeImplementation();
-		}
-
-		return eevImplemented;
-	}
+	return eevSentinel;
 }
 
 
@@ -271,9 +171,7 @@ CJobGroupImplementation::EevtImplementChildren(CSchedulerContext *psc,
 BOOL
 CJobGroupImplementation::FExecute(CSchedulerContext *psc)
 {
-	GPOS_ASSERT(FInit());
-
-	return m_jsm.FRun(psc, this);
+	return false;
 }
 
 
@@ -289,12 +187,6 @@ void
 CJobGroupImplementation::ScheduleJob(CSchedulerContext *psc, CGroup *pgroup,
 									 CJob *pjParent)
 {
-	CJob *pj = psc->Pjf()->PjCreate(CJob::EjtGroupImplementation);
-
-	// initialize job
-	CJobGroupImplementation *pjgi = PjConvert(pj);
-	pjgi->Init(pgroup);
-	psc->Psched()->Add(pjgi, pjParent);
 }
 
 

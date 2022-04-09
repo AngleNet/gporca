@@ -30,11 +30,6 @@ using namespace gpopt;
 void
 CJobGroup::Init(CGroup *pgroup)
 {
-	GPOS_ASSERT(!FInit());
-	GPOS_ASSERT(NULL != pgroup);
-
-	m_pgroup = pgroup;
-	m_pgexprLastScheduled = NULL;
 }
 
 
@@ -49,22 +44,7 @@ CJobGroup::Init(CGroup *pgroup)
 CGroupExpression *
 CJobGroup::PgexprFirstUnschedNonLogical()
 {
-	CGroupExpression *pgexpr = NULL;
-	{
-		CGroupProxy gp(m_pgroup);
-		if (NULL == m_pgexprLastScheduled)
-		{
-			// get first group expression
-			pgexpr = gp.PgexprSkipLogical(NULL /*pgexpr*/);
-		}
-		else
-		{
-			// get group expression next to last scheduled one
-			pgexpr = gp.PgexprSkipLogical(m_pgexprLastScheduled);
-		}
-	}
-
-	return pgexpr;
+	return NULL;
 }
 
 
@@ -79,22 +59,7 @@ CJobGroup::PgexprFirstUnschedNonLogical()
 CGroupExpression *
 CJobGroup::PgexprFirstUnschedLogical()
 {
-	CGroupExpression *pgexpr = NULL;
-	{
-		CGroupProxy gp(m_pgroup);
-		if (NULL == m_pgexprLastScheduled)
-		{
-			// get first group expression
-			pgexpr = gp.PgexprFirst();
-		}
-		else
-		{
-			// get group expression next to last scheduled one
-			pgexpr = gp.PgexprNext(m_pgexprLastScheduled);
-		}
-	}
-
-	return pgexpr;
+	return NULL;
 }
 
 // EOF
