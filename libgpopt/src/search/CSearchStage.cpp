@@ -112,6 +112,10 @@ CSearchStage::SetBestExpr(CExpression *pexpr)
 CSearchStageArray *
 CSearchStage::PdrgpssDefault(CMemoryPool *mp)
 {
+	// Min: the optimizer use the search stage to guide its search procedure. It
+	// maintains the time/cost thresholds and the rules to be applied. A query
+	// plan can be optimized according to multiple search stages. For every stage,
+	// there will be a best plan and a cost;
 	CXformSet *xform_set = GPOS_NEW(mp) CXformSet(mp);
 	xform_set->Union(CXformFactory::Pxff()->PxfsExploration());
 	CSearchStageArray *search_stage_array = GPOS_NEW(mp) CSearchStageArray(mp);
