@@ -34,6 +34,8 @@ using namespace gpopt;
 void
 CJobGroupExpression::Init(CGroupExpression *pgexpr)
 {
+	GPOS_ASSERT(pgexpr != NULL);
+	this->m_pgexpr = pgexpr;
 }
 
 
@@ -49,6 +51,12 @@ void
 CJobGroupExpression::ScheduleTransformations(CSchedulerContext *psc,
 											 CXformSet *xform_set)
 {
+	CXformSetIter iter(*xform_set);
+	while (iter.Advance())
+	{
+		CXform *pxform = CXformFactory::Pxff()->Pxf(iter.TBit());
+		CJobTransformation::ScheduleJob(psc, m_pgexpr, pxform, this);
+	}
 }
 
 

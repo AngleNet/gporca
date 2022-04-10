@@ -56,7 +56,27 @@ using namespace gpopt;
 //
 const CJobGroupExpressionExploration::EEvent
 	rgeev[CJobGroupExpressionExploration::estSentinel]
-		 [CJobGroupExpressionExploration::estSentinel] = {{}};
+		 [CJobGroupExpressionExploration::estSentinel] = {
+			 // estInitialized
+			 {CJobGroupExpressionExploration::eevExploringChildren,
+			  CJobGroupExpressionExploration::eevChildrenExplored,
+			  CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevSentinel},
+			 // estChildrenExplored
+			 {CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevExploringSelf,
+			  CJobGroupExpressionExploration::eevSelfExplored,
+			  CJobGroupExpressionExploration::eevSentinel},
+			 // estSelfExplored
+			 {CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevFinalized},
+			 // estCompleted
+			 {CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevSentinel,
+			  CJobGroupExpressionExploration::eevSentinel}};
 
 #ifdef GPOS_DEBUG
 
@@ -117,6 +137,20 @@ CJobGroupExpressionExploration::~CJobGroupExpressionExploration()
 void
 CJobGroupExpressionExploration::Init(CGroupExpression *pgexpr)
 {
+	CJobGroupExpression::Init(pgexpr);
+	m_jsm.Init(rgeev
+#ifdef GPOS_DEBUG
+			   ,
+			   rgwszStates, rgwszEvents
+#endif
+	);
+	m_jsm.SetAction(CJobGroupExpressionExploration::estInitialized,
+					CJobGroupExpressionExploration::EevtExploreChildren);
+	m_jsm.SetAction(CJobGroupExpressionExploration::estChildrenExplored,
+					CJobGroupExpressionExploration::EevtExploreSelf);
+	m_jsm.SetAction(CJobGroupExpressionExploration::estSelfExplored,
+					CJobGroupExpressionExploration::EevtFinalize);
+	CJob::SetInit();
 }
 
 
@@ -132,6 +166,18 @@ void
 CJobGroupExpressionExploration::ScheduleApplicableTransformations(
 	CSchedulerContext *psc)
 {
+	GPOS_ASSERT(!FXformsScheduled());
+
+	COperator *pop = m_pgexpr->Pop();
+	CXformSet *xform_set =
+		CLogical::PopConvert(pop)->PxfsCandidates(psc->GetGlobalMemoryPool());
+
+	// intersect them with required xforms and schedule jobs
+	xform_set->Intersection(CXformFactory::Pxff()->PxfsExploration());
+	xform_set->Intersection(psc->Peng()->PxfsCurrentStage());
+	ScheduleTransformations(psc, xform_set);
+	xform_set->Release();
+	SetXformsScheduled();
 }
 
 
@@ -146,6 +192,14 @@ CJobGroupExpressionExploration::ScheduleApplicableTransformations(
 void
 CJobGroupExpressionExploration::ScheduleChildGroupsJobs(CSchedulerContext *psc)
 {
+	GPOS_ASSERT(!FChildrenScheduled());
+
+	ULONG arity = m_pgexpr->Arity();
+	for (ULONG i = 0; i < arity; ++i)
+	{
+		CJobGroupExploration::ScheduleJob(psc, (*m_pgexpr)[i], this);
+	}
+	SetChildrenScheduled();
 }
 
 
@@ -161,7 +215,17 @@ CJobGroupExpressionExploration::EEvent
 CJobGroupExpressionExploration::EevtExploreChildren(CSchedulerContext *psc,
 													CJob *pjOwner)
 {
-	return eevSentinel;
+	CJobGroupExpressionExploration *pjge = PjConvert(pjOwner);
+	if (!pjge->FChildrenScheduled())
+	{
+		pjge->m_pgexpr->SetState(CGroupExpression::estExploring);
+		pjge->ScheduleChildGroupsJobs(psc);
+		return eevExploringChildren;
+	}
+	else
+	{
+		return eevChildrenExplored;
+	}
 }
 
 
@@ -177,7 +241,16 @@ CJobGroupExpressionExploration::EEvent
 CJobGroupExpressionExploration::EevtExploreSelf(CSchedulerContext *psc,
 												CJob *pjOwner)
 {
-	return eevSentinel;
+	CJobGroupExpressionExploration *pjge = PjConvert(pjOwner);
+	if (!pjge->FXformsScheduled())
+	{
+		pjge->ScheduleApplicableTransformations(psc);
+		return eevExploringSelf;
+	}
+	else
+	{
+		return eevSelfExplored;
+	}
 }
 
 
@@ -193,7 +266,9 @@ CJobGroupExpressionExploration::EEvent
 CJobGroupExpressionExploration::EevtFinalize(CSchedulerContext *,  //psc
 											 CJob *pjOwner)
 {
-	return eevSentinel;
+	CJobGroupExpressionExploration *pjge = PjConvert(pjOwner);
+	pjge->m_pgexpr->SetState(CGroupExpression::estExplored);
+	return eevFinalized;
 }
 
 
@@ -208,7 +283,8 @@ CJobGroupExpressionExploration::EevtFinalize(CSchedulerContext *,  //psc
 BOOL
 CJobGroupExpressionExploration::FExecute(CSchedulerContext *psc)
 {
-	return false;
+	GPOS_ASSERT(psc != NULL);
+	return m_jsm.FRun(psc, this);
 }
 
 
@@ -225,6 +301,12 @@ CJobGroupExpressionExploration::ScheduleJob(CSchedulerContext *psc,
 											CGroupExpression *pgexpr,
 											CJob *pjParent)
 {
+	GPOS_ASSERT(psc != NULL);
+	CJob *job = psc->Pjf()->PjCreate(EjtGroupExpressionExploration);
+	CJobGroupExpressionExploration *pjge = PjConvert(job);
+	pjge->Init(pgexpr);
+	GPOS_ASSERT(pjge->FInit());
+	psc->Psched()->Add(job, pjParent);
 }
 
 #ifdef GPOS_DEBUG
